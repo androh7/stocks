@@ -1,65 +1,69 @@
-# pip install streamlit fbprophet yfinance plotly
 import streamlit as st
-from datetime import date
-
+import pandas as pd
+import base64
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
 import yfinance as yf
-from fbprophet import Prophet
-from fbprophet.plot import plot_plotly
-from plotly import graph_objs as go
 
-START = "2015-01-01"
-TODAY = date.today().strftime("%Y-%m-%d")
+st.title('Stcok price')
+st.markdown("""
+Know the list of **stock closing price**!
+""")
 
-st.title('Stock Forecast App')
-
-stocks = ('GOOG', 'AAPL', 'MSFT', 'GME')
-selected_stock = st.selectbox('Select dataset for prediction', stocks)
-
-n_years = st.slider('Years of prediction:', 1, 4)
-period = n_years * 365
-
+st.sidebar.header('User Input Features')
 
 @st.cache
-def load_data(ticker):
-    data = yf.download(ticker, START, TODAY)
-    data.reset_index(inplace=True)
-    return data
+def load_data():
+    url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+    html = pd.read_html(url, header = 0)
+    df = html[0]
+    return df
 
-	
-data_load_state = st.text('Loading data...')
-data = load_data(selected_stock)
-data_load_state.text('Loading data... done!')
+df = load_data()
+sector = df.groupby('GICS Sector')
 
-st.subheader('Raw data')
-st.write(data.tail())
+# Sidebar - Sector selection
+sorted_sector_unique = sorted( df['GICS Sector'].unique() )
+selected_sector = st.sidebar.multiselect('Sector', sorted_sector_unique, sorted_sector_unique)
+# Filtering data
+df_selected_sector = df[ (df['GICS Sector'].isin(selected_sector)) ]
 
-# Plot raw data
-def plot_raw_data():
-	fig = go.Figure()
-	fig.add_trace(go.Scatter(x=data['Date'], y=data['Open'], name="stock_open"))
-	fig.add_trace(go.Scatter(x=data['Date'], y=data['Close'], name="stock_close"))
-	fig.layout.update(title_text='Time Series data with Rangeslider', xaxis_rangeslider_visible=True)
-	st.plotly_chart(fig)
-	
-plot_raw_data()
+st.header('Display Companies in Selected Sector')
+st.write('Data Dimension: ' + str(df_selected_sector.shape[0]) + ' rows and ' + str(df_selected_sector.shape[1]) + ' columns.')
+st.dataframe(df_selected_sector)
 
-# Predict forecast with Prophet.
-df_train = data[['Date','Close']]
-df_train = df_train.rename(columns={"Date": "ds", "Close": "y"})
+def filedownload(df):
+    csv = df.to_csv(index=False)
+    b64 = base64.b64encode(csv.encode()).decode()  
+    href = f'<a href="data:file/csv;base64,{b64}" download="SP500.csv">Download CSV File</a>'
+    return href
+st.markdown(filedownload(df_selected_sector), unsafe_allow_html=True)
+data = yf.download(
+        tickers = list(df_selected_sector[:10].Symbol),
+        period = "ytd",
+        interval = "1d",
+        group_by = 'ticker',
+        auto_adjust = True,
+        prepost = True,
+        threads = True,
+        proxy = None
+    )
 
-m = Prophet()
-m.fit(df_train)
-future = m.make_future_dataframe(periods=period)
-forecast = m.predict(future)
+def price_plot(symbol):
+  df = pd.DataFrame(data[symbol].Close)
+  df['Date'] = df.index
+  plt.fill_between(df.Date, df.Close, color='skyblue', alpha=0.3)
+  plt.plot(df.Date, df.Close, color='skyblue', alpha=0.8)
+  plt.xticks(rotation=90)
+  plt.title(symbol, fontweight='bold')
+  plt.xlabel('Date', fontweight='bold')
+  plt.ylabel('Closing Price', fontweight='bold')
+  return st.pyplot()
 
-# Show and plot forecast
-st.subheader('Forecast data')
-st.write(forecast.tail())
-    
-st.write(f'Forecast plot for {n_years} years')
-fig1 = plot_plotly(m, forecast)
-st.plotly_chart(fig1)
+num_company = st.sidebar.slider('Number of Companies', 1, 5)
 
-st.write("Forecast components")
-fig2 = m.plot_components(forecast)
-st.write(fig2)
+if st.button('Show Plots'):
+    st.header('Stock Closing Price')
+    for i in list(df_selected_sector.Symbol)[:num_company]:
+        price_plot(i)
