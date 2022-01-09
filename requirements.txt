@@ -4,3 +4,4 @@ seaborn==0.11.2
 pandas-datareader==0.10.0
 plotly-express==0.4.1
 streamlit-lottie==0.0.3
+keras-models==0.0.7
